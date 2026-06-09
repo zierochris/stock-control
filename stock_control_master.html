@@ -2129,10 +2129,11 @@ function _saveQueue(){ localStorage.setItem('sc_offline_queue', JSON.stringify(_
 
 // ── Kirim ke Sheets (dengan retry + offline fallback) ──
 async function sendToSheets(payload, retryCount = 0) {
-  if (!SHEETS_URL || SHEETS_URL === 'PASTE_WEB_APP_URL_DISINI') return; // belum dikonfigurasi
+  const url = window.SHEETS_URL || localStorage.getItem('sc_sheets_url');
+  if (!url || url === 'PASTE_WEB_APP_URL_DISINI') return;
 
   try {
-    const res = await fetch(SHEETS_URL, {
+    const res = await fetch(url, {
       method : 'POST',
       headers: { 'Content-Type': 'text/plain' }, // Apps Script perlu text/plain untuk avoid CORS preflight
       body   : JSON.stringify(payload),
@@ -2574,7 +2575,7 @@ function saveCheckpoint(area){
   showBanner(area,'saved',`✓ Checkpoint ${ts.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})} tersimpan · ${filled} parts · ${red} critical`);
 
   // ── Kirim ke Google Sheets (non-blocking) ──
-  if (SHEETS_URL && SHEETS_URL !== 'PASTE_WEB_APP_URL_DISINI') {
+  if (window.SHEETS_URL || localStorage.getItem('sc_sheets_url')) {
     showSheetsStatus('sending', `↑ Menyimpan checkpoint ${AREA_LABELS[area]} ke Sheets...`);
     sendToSheets({
       action    : 'saveCheckpoint',
@@ -3759,7 +3760,7 @@ function importMasterConfig(area, rows){
   updateSummary(area);
 
   // ── Sync master config ke Sheets (non-blocking) ──
-  if (SHEETS_URL && SHEETS_URL !== 'PASTE_WEB_APP_URL_DISINI') {
+  if (window.SHEETS_URL || localStorage.getItem('sc_sheets_url')) {
     sendToSheets({
       action : 'saveMasterConfig',
       area   : area,
