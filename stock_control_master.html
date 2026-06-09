@@ -2133,7 +2133,7 @@ function _saveQueue(){ localStorage.setItem('sc_offline_queue', JSON.stringify(_
 
 // ── Kirim ke Sheets (dengan retry + offline fallback) ──
 async function sendToSheets(payload, retryCount = 0) {
-  const url = window.SHEETS_URL || localStorage.getItem('sc_sheets_url');
+  const url = getActiveSheetsUrl();
   if (!url) return;
 
   try {
@@ -2583,7 +2583,7 @@ function saveCheckpoint(area){
   showBanner(area,'saved',`✓ Checkpoint ${ts.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})} tersimpan · ${filled} parts · ${red} critical`);
 
   // ── Kirim ke Google Sheets (non-blocking) ──
-  if (window.SHEETS_URL || localStorage.getItem('sc_sheets_url')) {
+  if (getActiveSheetsUrl()) {
     showSheetsStatus('sending', `↑ Menyimpan checkpoint ${AREA_LABELS[area]} ke Sheets...`);
     sendToSheets({
       action    : 'saveCheckpoint',
@@ -3768,7 +3768,7 @@ function importMasterConfig(area, rows){
   updateSummary(area);
 
   // ── Sync master config ke Sheets (non-blocking) ──
-  if (window.SHEETS_URL || localStorage.getItem('sc_sheets_url')) {
+  if (getActiveSheetsUrl()) {
     sendToSheets({
       action : 'saveMasterConfig',
       area   : area,
@@ -3943,23 +3943,29 @@ function downloadExcelTemplate(){
 // SHEETS SETTINGS PANEL
 // ═══════════════════════════════════════════════════════
 
-// Override SHEETS_URL dari localStorage jika ada
-(function initSheetsUrl(){
+// URL resolution: localStorage override > hardcoded konstanta
+// Hardcoded URL selalu jadi fallback — tidak perlu setup di tiap device
+const SHEETS_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
+
+function getActiveSheetsUrl(){
   const saved = localStorage.getItem('sc_sheets_url');
-  if (saved && saved.startsWith('https://')) {
-    window.SHEETS_URL = saved; // override konstanta
-  }
+  return (saved && saved.startsWith('https://')) ? saved : SHEETS_URL_DEFAULT;
+}
+
+(function initSheetsUrl(){
+  // Selalu set window.SHEETS_URL dari active URL (hardcoded atau localStorage override)
+  window.SHEETS_URL = getActiveSheetsUrl();
   updateSheetsBtn();
 })();
 
 function updateSheetsBtn(){
   const btn = $('btnSheetsConn');
   if (!btn) return;
-  const url = localStorage.getItem('sc_sheets_url');
-  const connected = url && url.startsWith('https://');
-  btn.style.borderColor = connected ? 'var(--green)' : 'var(--text3)';
-  btn.style.color       = connected ? 'var(--green)' : 'var(--text3)';
-  btn.title = connected ? '☁ Terhubung ke Sheets — klik untuk setting' : '☁ Sheets belum dikonfigurasi';
+  const url = getActiveSheetsUrl();
+  const isCustom = !!localStorage.getItem('sc_sheets_url');
+  btn.style.borderColor = 'var(--green)';
+  btn.style.color       = 'var(--green)';
+  btn.title = isCustom ? '☁ Custom URL aktif — klik untuk setting' : '☁ Terhubung ke Sheets default — klik untuk setting';
 }
 
 function openSheetsSettings(){
@@ -3967,6 +3973,7 @@ function openSheetsSettings(){
   overlay.style.display = 'flex';
   const saved = localStorage.getItem('sc_sheets_url') || '';
   $('sheetsUrlInput').value = saved;
+  $('sheetsUrlInput').placeholder = SHEETS_URL_DEFAULT;
 
   // Queue info
   const q = JSON.parse(localStorage.getItem('sc_offline_queue') || '[]');
@@ -3975,43 +3982,49 @@ function openSheetsSettings(){
     : '';
 
   // Status
-  updateSettingsStatus(saved);
+  updateSettingsStatus(getActiveSheetsUrl(), !!saved);
 }
 
 function closeSheetsSettings(){
   $('sheetsSettingsOverlay').style.display = 'none';
 }
 
-function updateSettingsStatus(url){
+function updateSettingsStatus(url, isCustom){
   const el = $('sheetsConnStatus');
-  if (!url || !url.startsWith('https://')) {
+  if (!url) {
     el.style.cssText = 'background:rgba(255,184,0,.08);border:1px solid rgba(255,184,0,.2);color:var(--yellow);';
-    el.textContent = '⚠ Belum dikonfigurasi — data hanya tersimpan di browser lokal';
+    el.textContent = '⚠ Belum dikonfigurasi';
+  } else if (isCustom) {
+    el.style.cssText = 'background:rgba(0,214,143,.08);border:1px solid rgba(0,214,143,.2);color:var(--green);';
+    el.textContent = '✅ Custom URL aktif — override dari default';
   } else {
     el.style.cssText = 'background:rgba(0,214,143,.08);border:1px solid rgba(0,214,143,.2);color:var(--green);';
-    el.textContent = '✅ URL tersimpan — data akan sync ke Google Sheets saat SUBMIT';
+    el.textContent = '✅ Terhubung — URL default aktif (semua user otomatis terhubung)';
   }
 }
 
 async function saveSheetsUrl(){
   const url = $('sheetsUrlInput').value.trim();
-  if (!url) { alert('URL tidak boleh kosong.'); return; }
+  if (!url) {
+    // Kosong = hapus override, kembali ke default
+    localStorage.removeItem('sc_sheets_url');
+    window.SHEETS_URL = SHEETS_URL_DEFAULT;
+    updateSheetsBtn();
+    updateSettingsStatus(SHEETS_URL_DEFAULT, false);
+    return;
+  }
   if (!url.startsWith('https://')) {
     alert('URL tidak valid. Harus dimulai dengan https://'); return;
   }
   localStorage.setItem('sc_sheets_url', url);
   window.SHEETS_URL = url;
   updateSheetsBtn();
-  updateSettingsStatus(url);
-
-  // Test koneksi langsung
+  updateSettingsStatus(url, true);
   await testSheetsConnection();
 }
 
 async function testSheetsConnection(){
-  const url = localStorage.getItem('sc_sheets_url');
-  if (!url) { alert('Simpan URL dulu.'); return; }
-
+  const url = getActiveSheetsUrl();
   const el = $('sheetsConnStatus');
   el.style.cssText = 'background:rgba(79,156,255,.08);border:1px solid rgba(79,156,255,.2);color:var(--blue);';
   el.textContent = '↑ Testing koneksi...';
@@ -4020,23 +4033,24 @@ async function testSheetsConnection(){
     const res  = await fetch(url);
     const data = await res.json();
     if (data.ok) {
+      const isCustom = !!localStorage.getItem('sc_sheets_url');
       el.style.cssText = 'background:rgba(0,214,143,.08);border:1px solid rgba(0,214,143,.2);color:var(--green);';
-      el.textContent = '✅ Koneksi berhasil — API aktif dan siap menerima data';
+      el.textContent = `✅ Koneksi berhasil — ${isCustom ? 'Custom URL' : 'URL default'} aktif`;
     } else {
       throw new Error(data.message || 'Response tidak ok');
     }
   } catch (err) {
     el.style.cssText = 'background:rgba(255,59,92,.08);border:1px solid rgba(255,59,92,.2);color:var(--red);';
-    el.textContent = `❌ Gagal: ${err.message} — cek URL atau coba deploy ulang`;
+    el.textContent = `❌ Gagal: ${err.message}`;
   }
 }
 
 function clearSheetsUrl(){
-  if (!confirm('Reset koneksi Sheets? URL akan dihapus.')) return;
+  if (!confirm('Reset ke URL default? Custom URL akan dihapus.')) return;
   localStorage.removeItem('sc_sheets_url');
-  window.SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
+  window.SHEETS_URL = SHEETS_URL_DEFAULT;
   $('sheetsUrlInput').value = '';
-  updateSettingsStatus('');
+  updateSettingsStatus(SHEETS_URL_DEFAULT, false);
   updateSheetsBtn();
 }
 
