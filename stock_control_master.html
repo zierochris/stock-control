@@ -3987,8 +3987,8 @@ function updateSettingsStatus(url){
 async function saveSheetsUrl(){
   const url = $('sheetsUrlInput').value.trim();
   if (!url) { alert('URL tidak boleh kosong.'); return; }
-  if (!url.startsWith('https://script.google.com')) {
-    alert('URL tidak valid. Harus dimulai dengan https://script.google.com/...'); return;
+  if (!url.startsWith('https://')) {
+    alert('URL tidak valid. Harus dimulai dengan https://'); return;
   }
   localStorage.setItem('sc_sheets_url', url);
   window.SHEETS_URL = url;
