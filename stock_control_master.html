@@ -2119,7 +2119,7 @@ mark.sh {
 // GOOGLE SHEETS INTEGRATION CONFIG
 // Paste Web App URL dari Apps Script deployment di sini
 // ═══════════════════════════════════════════════════════
-const SHEETS_URL = 'PASTE_WEB_APP_URL_DISINI';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
 
 // Offline queue — menyimpan payload yang gagal kirim
 // Akan di-retry otomatis saat koneksi kembali
@@ -2130,7 +2130,7 @@ function _saveQueue(){ localStorage.setItem('sc_offline_queue', JSON.stringify(_
 // ── Kirim ke Sheets (dengan retry + offline fallback) ──
 async function sendToSheets(payload, retryCount = 0) {
   const url = window.SHEETS_URL || localStorage.getItem('sc_sheets_url');
-  if (!url || url === 'PASTE_WEB_APP_URL_DISINI') return;
+  if (!url) return;
 
   try {
     const res = await fetch(url, {
@@ -4026,7 +4026,7 @@ async function testSheetsConnection(){
 function clearSheetsUrl(){
   if (!confirm('Reset koneksi Sheets? URL akan dihapus.')) return;
   localStorage.removeItem('sc_sheets_url');
-  window.SHEETS_URL = 'PASTE_WEB_APP_URL_DISINI';
+  window.SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
   $('sheetsUrlInput').value = '';
   updateSettingsStatus('');
   updateSheetsBtn();
