@@ -1032,16 +1032,20 @@ tr.sec-row td {
     letter-spacing:.6px;
   }
 
-  /* ── SUB TABS → full width toggle ── */
+  /* ── SUB TABS → full width toggle, sticky ── */
   .main-tabs {
     display:grid;
     grid-template-columns:1fr 1fr;
     padding:8px 10px;
     gap:6px;
-    position:static; /* remove sticky — actionbar handles it */
+    position:sticky;
+    top:calc(var(--topbar-h) + var(--areatab-h));
+    z-index:288;
     background:var(--card);
     border-bottom:1px solid var(--border);
   }
+  /* mobile main-tab height = 40px content + 8px top + 8px bottom padding = 56px total */
+  :root { --maintab-mob-h: 56px; }
   .main-tab {
     height:40px;
     min-height:44px;
@@ -1064,7 +1068,7 @@ tr.sec-row td {
     padding:0 10px;
     height:auto;
     min-height:var(--action-h);
-    top:calc(var(--topbar-h) + var(--areatab-h));
+    top:calc(var(--topbar-h) + var(--areatab-h) + var(--maintab-mob-h));
     flex-wrap:nowrap;
     gap:6px;
   }
@@ -1455,7 +1459,7 @@ mark.sh {
 @media (max-width:767px) {
   .search-bar-wrap {
     padding:8px 10px 5px;
-    top:calc(var(--topbar-h) + var(--areatab-h));
+    top:calc(var(--topbar-h) + var(--areatab-h) + var(--maintab-mob-h) + var(--action-h));
   }
   .search-inner { max-width:100%; }
   input.search-input { font-size:15px; padding:9px 36px 9px 34px; }
@@ -2185,8 +2189,12 @@ function showSheetsStatus(type, msg) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'sheetsStatusBar';
+    const isMob = window.innerWidth <= 767;
+    const topH   = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--topbar-h'))  || 52;
+    const areaH  = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--areatab-h')) || 46;
+    const topOffset = isMob ? (topH + areaH) : topH;
     el.style.cssText = `
-      position:fixed; top:${getComputedStyle(document.documentElement).getPropertyValue('--topbar-h') || '52px'};
+      position:fixed; top:${topOffset}px;
       left:0; right:0; z-index:500;
       padding:6px 20px; font:600 11px/1 var(--font-mono);
       text-align:center; transition:opacity .4s;
