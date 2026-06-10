@@ -1482,6 +1482,7 @@ mark.sh {
     <button class="btn btn-excel" onclick="triggerExcelUpload()" title="Import data dari Excel (.xlsx)" style="font-size:11px;border-color:var(--green);color:var(--green);">⬆ Import Excel</button>
     <button class="btn" onclick="downloadExcelTemplate()" title="Download template Excel" style="font-size:11px;border-color:var(--teal);color:var(--teal);">⬇ Template</button>
     <input type="file" id="excelFileInput" accept=".xlsx,.xls" style="display:none;" onchange="handleExcelFile(this)">
+    <button class="btn" onclick="triggerSync()" title="Pull data terbaru dari Sheets" style="font-size:11px;border-color:var(--blue);color:var(--blue);">🔄 Sync</button>
     <button class="btn" onclick="openSheetsSettings()" id="btnSheetsConn" title="Koneksi Google Sheets" style="font-size:11px;border-color:var(--text3);color:var(--text3);">☁ Sheets</button>
     <button class="btn" onclick="openPartMgmt()" style="font-size:11px;">⚙ Kelola Part</button>
     <button id="themeToggle" onclick="toggleTheme()">
@@ -1499,6 +1500,7 @@ mark.sh {
   <div id="mobileMenu">
     <button class="mob-menu-item" onclick="triggerExcelUpload();toggleMobileMenu()">⬆ Import Excel</button>
     <button class="mob-menu-item" onclick="downloadExcelTemplate();toggleMobileMenu()">⬇ Download Template</button>
+    <button class="mob-menu-item" onclick="triggerSync();toggleMobileMenu()" style="color:var(--blue);">🔄 Sync Semua Area</button>
     <button class="mob-menu-item" onclick="openSheetsSettings();toggleMobileMenu()">☁ Koneksi Sheets</button>
     <button class="mob-menu-item" onclick="toggleLog(activeArea);toggleMobileMenu()">📋 Log</button>
     <button class="mob-menu-item" onclick="openLaporan(activeArea);toggleMobileMenu()">📄 Report Update</button>
@@ -1539,6 +1541,7 @@ mark.sh {
         <div class="prog-track"><div class="prog-fill" id="core_progFill" style="width:0%"></div></div>
         <div class="prog-txt" id="core_progTxt">0 / 47</div>
       </div>
+      <button class="btn" onclick="triggerSyncArea('core')" style="border-color:var(--blue);color:var(--blue);">🔄 Sync</button>
       <button class="btn" onclick="toggleLog('core')">📋 Log</button>
       <button class="btn" onclick="openLaporan('core')" style="border-color:var(--purple);color:var(--purple);">📄 Report Update</button>
       <button class="btn danger" onclick="clearAll('core')">✕ Clear</button>
@@ -1684,6 +1687,7 @@ mark.sh {
         <div class="prog-track"><div class="prog-fill" id="ace1_progFill" style="width:0%"></div></div>
         <div class="prog-txt" id="ace1_progTxt">0 / 10</div>
       </div>
+      <button class="btn" onclick="triggerSyncArea('ace1')" style="border-color:var(--blue);color:var(--blue);">🔄 Sync</button>
       <button class="btn" onclick="toggleLog('ace1')">📋 Log</button>
       <button class="btn" onclick="openLaporan('ace1')" style="border-color:var(--purple);color:var(--purple);">📄 Report Update</button>
       <button class="btn danger" onclick="clearAll('ace1')">✕ Clear</button>
@@ -1829,6 +1833,7 @@ mark.sh {
         <div class="prog-track"><div class="prog-fill" id="ace2_progFill" style="width:0%"></div></div>
         <div class="prog-txt" id="ace2_progTxt">0 / 10</div>
       </div>
+      <button class="btn" onclick="triggerSyncArea('ace2')" style="border-color:var(--blue);color:var(--blue);">🔄 Sync</button>
       <button class="btn" onclick="toggleLog('ace2')">📋 Log</button>
       <button class="btn" onclick="openLaporan('ace2')" style="border-color:var(--purple);color:var(--purple);">📄 Report Update</button>
       <button class="btn danger" onclick="clearAll('ace2')">✕ Clear</button>
@@ -1974,6 +1979,7 @@ mark.sh {
         <div class="prog-track"><div class="prog-fill" id="edp_progFill" style="width:0%"></div></div>
         <div class="prog-txt" id="edp_progTxt">0 / 6</div>
       </div>
+      <button class="btn" onclick="triggerSyncArea('edp')" style="border-color:var(--blue);color:var(--blue);">🔄 Sync</button>
       <button class="btn" onclick="toggleLog('edp')">📋 Log</button>
       <button class="btn" onclick="openLaporan('edp')" style="border-color:var(--purple);color:var(--purple);">📄 Report Update</button>
       <button class="btn danger" onclick="clearAll('edp')">✕ Clear</button>
@@ -2589,10 +2595,12 @@ function saveCheckpoint(area){
       action    : 'saveCheckpoint',
       area      : area,
       timestamp : ts.toISOString(),
+      operator  : localStorage.getItem('sc_operator_name') || 'operator',
       rows      : snap,
     }).then(result => {
       if (result && result.ok) {
-        showSheetsStatus('synced', `✅ ${AREA_LABELS[area]} · ${result.data.saved} parts tersimpan ke Sheets`);
+        const saved = result.data.upserted || result.data.saved || 0;
+        showSheetsStatus('synced', `✅ ${AREA_LABELS[area]} · ${saved} parts tersimpan ke Sheets`);
       }
     });
   }
@@ -4058,6 +4066,103 @@ function clearSheetsUrl(){
 $('sheetsSettingsOverlay') && $('sheetsSettingsOverlay').addEventListener('click', function(e){
   if (e.target === this) closeSheetsSettings();
 });
+
+// ═══════════════════════════════════════════════════════
+// SYNC ENGINE — Pull data terbaru dari Sheets
+// ═══════════════════════════════════════════════════════
+
+let _syncInProgress = false;
+
+async function syncFromSheets(area) {
+  if (_syncInProgress) return;
+  _syncInProgress = true;
+
+  const url = getActiveSheetsUrl();
+  if (!url) { _syncInProgress = false; return; }
+
+  const target = area || 'all';
+  showSheetsStatus('sending', `↓ Mengambil data terbaru dari Sheets...`);
+
+  try {
+    const res  = await fetch(`${url}?area=${target}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || 'Response tidak ok');
+
+    if (target === 'all') {
+      let totalInjected = 0;
+      Object.keys(json.data).forEach(areaKey => {
+        const injected = injectSheetsData(areaKey, json.data[areaKey]);
+        totalInjected += injected;
+      });
+      showSheetsStatus('synced', `✅ Sync selesai — ${totalInjected} parts diupdate dari Sheets`);
+    } else {
+      const injected = injectSheetsData(target, json.data);
+      showSheetsStatus('synced', `✅ ${AREA_LABELS[target]} — ${injected} parts diupdate`);
+    }
+
+  } catch (err) {
+    showSheetsStatus('error', `❌ Sync gagal: ${err.message}`);
+  } finally {
+    _syncInProgress = false;
+  }
+}
+
+// Inject data dari Sheets ke state + DOM dashboard
+function injectSheetsData(area, rows) {
+  if (!rows || !rows.length) return 0;
+  const parts = AREA_PARTS[area];
+  if (!parts) return 0;
+
+  let injected = 0;
+
+  rows.forEach(r => {
+    const partName = r.PART_NAME || '';
+    if (!partName) return;
+
+    const idx = parts.findIndex(p => p.name.toLowerCase() === partName.toLowerCase());
+    if (idx < 0) return;
+
+    const st = ST[area].rows[idx];
+
+    // Inject semua field dari Sheets → state
+    const toNum = v => (v === '' || v === null || v === undefined) ? null : Number(v);
+    const toStr = v => v ? String(v).trim() : '';
+
+    st.sto    = toNum(r.STOCK_STO);
+    st.upd    = toNum(r.STOCK_UPDATE);
+    st.okNsp  = toNum(r.OK_NSP);
+    st.okNsm  = toNum(r.OK_NSM);
+    st.ngNsp  = toNum(r.NG_NSP);
+    st.ngNsm  = toNum(r.NG_NSM);
+    st.tarNsp = toNum(r.TARIKAN_NSP);
+    st.tarNsm = toNum(r.TARIKAN_NSM);
+    st.samp   = toNum(r.SAMPLING);
+    st.ket    = toStr(r.KETERANGAN);
+
+    // Update MIN/MAX dari Sheets juga
+    if (r.MIN) parts[idx].min = Number(r.MIN) || 0;
+    if (r.MAX) parts[idx].max = Number(r.MAX) || 0;
+
+    // Sync DOM
+    syncRowDOMFromState(area, idx);
+    injected++;
+  });
+
+  updateSummary(area);
+  // Rebuild chart jika aktif
+  if (ST[area].subPage === 'chart') refreshCharts(area);
+
+  return injected;
+}
+
+// Tombol sync di topbar + action bar
+function triggerSync() {
+  syncFromSheets('all');
+}
+
+function triggerSyncArea(area) {
+  syncFromSheets(area);
+}
 
 </script>
 <div id="nameInputOverlay">
