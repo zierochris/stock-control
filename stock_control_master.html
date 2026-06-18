@@ -1492,6 +1492,7 @@ mark.sh {
     <div class="live-indicator">
       <div class="live-dot"></div>
       <div class="clock" id="clock">--:--</div>
+      <div id="lastSyncLabel" style="font:400 10px/1 var(--font-mono);color:var(--text3);letter-spacing:.3px;display:none;">· sync <span id="lastSyncTime">—</span></div>
     </div>
     <!-- Mobile hamburger (hidden on desktop via CSS) -->
     <button id="mobileMenuBtn" onclick="toggleMobileMenu()" style="display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--radius);border:1px solid var(--border2);background:none;color:var(--text2);font-size:20px;cursor:pointer;flex-shrink:0;">☰</button>
@@ -3144,6 +3145,24 @@ if(typeof isMobile==='function'&&isMobile()){
   AREA_KEYS.forEach(a=>buildMobileCards(a));
 }
 
+// ─── AUTO SYNC (pull dari Sheets tiap 1 menit) ───
+// Pull pertama saat halaman dibuka (delay 2 detik biar DOM siap)
+setTimeout(()=>{ syncFromSheets('all'); }, 2000);
+
+// Polling interval 60 detik
+let _syncInterval = setInterval(()=>{ syncFromSheets('all'); }, 60000);
+
+// Pause polling saat tab tidak aktif (hemat resource)
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden){
+    clearInterval(_syncInterval);
+  } else {
+    // Tab aktif lagi — langsung sync sekali, lalu restart interval
+    syncFromSheets('all');
+    _syncInterval = setInterval(()=>{ syncFromSheets('all'); }, 60000);
+  }
+});
+
 
 // ═══════════════════════════════════════════════════════
 // PART MANAGEMENT
@@ -4088,16 +4107,34 @@ async function syncFromSheets(area) {
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'Response tidak ok');
 
+    // Guard: data harus ada
+    if (!json.data) {
+      showSheetsStatus('synced', `✅ Sync selesai — Sheets kosong, tidak ada data`);
+      return;
+    }
+
     if (target === 'all') {
+      // Guard: harus object bukan array
+      if (typeof json.data !== 'object' || Array.isArray(json.data)) {
+        throw new Error('Format response tidak valid — pastikan Apps Script v2 sudah di-deploy');
+      }
       let totalInjected = 0;
       Object.keys(json.data).forEach(areaKey => {
-        const injected = injectSheetsData(areaKey, json.data[areaKey]);
-        totalInjected += injected;
+        const areaRows = json.data[areaKey];
+        if (Array.isArray(areaRows)) {
+          totalInjected += injectSheetsData(areaKey, areaRows);
+        }
       });
+      // Update last sync indicator
+      const syncTime = new Date().toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+      const lbl = $('lastSyncLabel'), tm = $('lastSyncTime');
+      if(lbl){ lbl.style.display='block'; }
+      if(tm){ tm.textContent = syncTime; }
       showSheetsStatus('synced', `✅ Sync selesai — ${totalInjected} parts diupdate dari Sheets`);
     } else {
-      const injected = injectSheetsData(target, json.data);
-      showSheetsStatus('synced', `✅ ${AREA_LABELS[target]} — ${injected} parts diupdate`);
+      const areaRows = Array.isArray(json.data) ? json.data : [];
+      const injected = injectSheetsData(target, areaRows);
+      showSheetsStatus('synced', `✅ ${AREA_LABELS[target] || target} — ${injected} parts diupdate`);
     }
 
   } catch (err) {
