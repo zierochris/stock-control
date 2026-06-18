@@ -2130,7 +2130,7 @@ mark.sh {
 // GOOGLE SHEETS INTEGRATION CONFIG
 // Paste Web App URL dari Apps Script deployment di sini
 // ═══════════════════════════════════════════════════════
-const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxM00-vhRACpIIOP2VjEhKxZ7c0JcuO8fV6c7R7qsaHsutk4rrPa2IzMR-DMkZXuA5g/exec';
 
 // Offline queue — menyimpan payload yang gagal kirim
 // Akan di-retry otomatis saat koneksi kembali
@@ -3147,10 +3147,10 @@ if(typeof isMobile==='function'&&isMobile()){
 
 // ─── AUTO SYNC (pull dari Sheets tiap 1 menit) ───
 // Pull pertama saat halaman dibuka (delay 2 detik biar DOM siap)
-setTimeout(()=>{ syncFromSheets('all'); }, 2000);
+setTimeout(()=>{ syncFromSheets('all', true); }, 2000);
 
 // Polling interval 60 detik
-let _syncInterval = setInterval(()=>{ syncFromSheets('all'); }, 60000);
+let _syncInterval = setInterval(()=>{ syncFromSheets('all', true); }, 60000);
 
 // Pause polling saat tab tidak aktif (hemat resource)
 document.addEventListener('visibilitychange', ()=>{
@@ -3158,8 +3158,8 @@ document.addEventListener('visibilitychange', ()=>{
     clearInterval(_syncInterval);
   } else {
     // Tab aktif lagi — langsung sync sekali, lalu restart interval
-    syncFromSheets('all');
-    _syncInterval = setInterval(()=>{ syncFromSheets('all'); }, 60000);
+    syncFromSheets('all', true);
+    _syncInterval = setInterval(()=>{ syncFromSheets('all', true); }, 60000);
   }
 });
 
@@ -3972,7 +3972,7 @@ function downloadExcelTemplate(){
 
 // URL resolution: localStorage override > hardcoded konstanta
 // Hardcoded URL selalu jadi fallback — tidak perlu setup di tiap device
-const SHEETS_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwXD-zYhEWL8eLUy3dCpmp9cnLJULFdwxTi0vqrpvZV1x28IJ8VZOGtSfVfPFT7NlyZ/exec';
+const SHEETS_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbxM00-vhRACpIIOP2VjEhKxZ7c0JcuO8fV6c7R7qsaHsutk4rrPa2IzMR-DMkZXuA5g/exec';
 
 function getActiveSheetsUrl(){
   const saved = localStorage.getItem('sc_sheets_url');
@@ -4092,7 +4092,7 @@ $('sheetsSettingsOverlay') && $('sheetsSettingsOverlay').addEventListener('click
 
 let _syncInProgress = false;
 
-async function syncFromSheets(area) {
+async function syncFromSheets(area, isAuto) {
   if (_syncInProgress) return;
   _syncInProgress = true;
 
@@ -4100,7 +4100,7 @@ async function syncFromSheets(area) {
   if (!url) { _syncInProgress = false; return; }
 
   const target = area || 'all';
-  showSheetsStatus('sending', `↓ Mengambil data terbaru dari Sheets...`);
+  if (!isAuto) showSheetsStatus('sending', `↓ Mengambil data terbaru dari Sheets...`);
 
   try {
     const res  = await fetch(`${url}?area=${target}`);
@@ -4109,7 +4109,7 @@ async function syncFromSheets(area) {
 
     // Guard: data harus ada
     if (!json.data) {
-      showSheetsStatus('synced', `✅ Sync selesai — Sheets kosong, tidak ada data`);
+      if (!isAuto) showSheetsStatus('synced', `✅ Sync selesai — Sheets kosong, tidak ada data`);
       return;
     }
 
@@ -4122,7 +4122,7 @@ async function syncFromSheets(area) {
       Object.keys(json.data).forEach(areaKey => {
         const areaRows = json.data[areaKey];
         if (Array.isArray(areaRows)) {
-          totalInjected += injectSheetsData(areaKey, areaRows);
+          totalInjected += injectSheetsData(areaKey, areaRows, isAuto);
         }
       });
       // Update last sync indicator
@@ -4130,27 +4130,28 @@ async function syncFromSheets(area) {
       const lbl = $('lastSyncLabel'), tm = $('lastSyncTime');
       if(lbl){ lbl.style.display='block'; }
       if(tm){ tm.textContent = syncTime; }
-      showSheetsStatus('synced', `✅ Sync selesai — ${totalInjected} parts diupdate dari Sheets`);
+      showSheetsStatus('synced', `✅ Sync ${syncTime} — ${totalInjected} parts diupdate`);
     } else {
       const areaRows = Array.isArray(json.data) ? json.data : [];
-      const injected = injectSheetsData(target, areaRows);
-      showSheetsStatus('synced', `✅ ${AREA_LABELS[target] || target} — ${injected} parts diupdate`);
+      const injected = injectSheetsData(target, areaRows, isAuto);
+      if (!isAuto) showSheetsStatus('synced', `✅ ${AREA_LABELS[target] || target} — ${injected} parts diupdate`);
     }
 
   } catch (err) {
-    showSheetsStatus('error', `❌ Sync gagal: ${err.message}`);
+    if (!isAuto) showSheetsStatus('error', `❌ Sync gagal: ${err.message}`);
   } finally {
     _syncInProgress = false;
   }
 }
 
 // Inject data dari Sheets ke state + DOM dashboard
-function injectSheetsData(area, rows) {
+// isAuto = true → skip part yang sedang diedit operator (belum submit)
+function injectSheetsData(area, rows, isAuto) {
   if (!rows || !rows.length) return 0;
   const parts = AREA_PARTS[area];
   if (!parts) return 0;
 
-  let injected = 0;
+  let injected = 0, skipped = 0;
 
   rows.forEach(r => {
     const partName = r.PART_NAME || '';
@@ -4160,6 +4161,15 @@ function injectSheetsData(area, rows) {
     if (idx < 0) return;
 
     const st = ST[area].rows[idx];
+
+    // ── PROTEKSI: jangan overwrite input yang sedang diedit (belum submit) ──
+    // Part dianggap "dirty" kalau ada nilai input transaksi (OK/NG/Tarikan/Samp/Ket)
+    // yang belum di-submit. STO & UPD bukan indikator dirty (itu hasil submit/sync).
+    if (isAuto) {
+      const isDirty = [st.okNsp, st.okNsm, st.ngNsp, st.ngNsm, st.tarNsp, st.tarNsm, st.samp].some(x => x !== null && x !== '')
+                      || (st.ket && st.ket.trim() !== '');
+      if (isDirty) { skipped++; return; } // skip — biarkan operator selesai dulu
+    }
 
     // Inject semua field dari Sheets → state
     const toNum = v => (v === '' || v === null || v === undefined) ? null : Number(v);
